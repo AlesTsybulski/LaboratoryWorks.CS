@@ -1,107 +1,223 @@
-﻿﻿
-using System.Drawing;
-using System.Drawing.Imaging;
+﻿
+using System.Text;
 
+
+struct GeneticData
+{
+    public string protein;
+    public string organism;
+    public string amino_acids;
+}
 
 class Program
 {
-    static void Main(string[] args)
+    static string RLDecoding(string amino_acids)
     {
-        Console.WriteLine("hello.");
-        string inputFile = "TOG.txt";
-        if (!File.Exists(inputFile))
+        if (string.IsNullOrEmpty(amino_acids)) return "";
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        while (i < amino_acids.Length)
         {
-            // If not in the current directory, check the parent directory.
-            inputFile = Path.Combine("..", inputFile);
-            if (!File.Exists(inputFile))
+            if (char.IsDigit(amino_acids[i]))
             {
-                Console.WriteLine($"File not found: {inputFile}");
-                return;
-            }
-        }
-
-        // Read colors from the file
-        List<Color> colors = new List<Color>();
-        string[] lines = File.ReadAllLines(inputFile);
-        foreach (string line in lines)
-        {
-            string[] colorEntries = line.Split(new[] { ' ', '	', ',', '.', ';', ':', '!', '?', '(', ')' }, StringSplitOptions.RemoveEmptyEntries);
-            int wordCount = colorEntries.Count();
-            foreach (string entry in colorEntries)
-            {
-                string trimmed = entry.Trim();
-                if (string.IsNullOrEmpty(trimmed)) continue;
-
-                try
+                int num_start = i;
+                while (i < amino_acids.Length && char.IsDigit(amino_acids[i]))
                 {
-                    Color color;
-                    if (trimmed.StartsWith("#"))
+                    i++;
+                }
+                int count = int.Parse(amino_acids.Substring(num_start, i - num_start));
+
+                if (i < amino_acids.Length && !char.IsDigit(amino_acids[i]))
+                {
+                    char c = amino_acids[i];
+                    for (int j = 0; j < count; j++)
                     {
-                        // HEX format
-                        color = ColorTranslator.FromHtml(trimmed);
+                        sb.Append(c);
                     }
-                    else
-                    {
-                        // Color name
-                        color = Color.FromName(trimmed);
-                        // Color.FromName returns a color with ARGB(0,0,0,0) if the name is not found.
-                        if (color.ToArgb() == 0 && !string.Equals(trimmed, "Transparent", StringComparison.OrdinalIgnoreCase))
-                        {
-                            // If it's not a standard name, try it as HEX without #
-                            color = ColorTranslator.FromHtml("#" + trimmed);
-                        }
-                    }
-                    colors.Add(color);
-
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Failed to recognize color: {trimmed} ({ex.Message})");
+                    i++;
                 }
             }
-           
+            else
+            {
+                sb.Append(amino_acids[i]);
+                i++;
+            }
         }
-        
-        if (colors.Count == 0)
-        {
-            Console.WriteLine("No valid colors found.");
-            return;
-        }
+        return sb.ToString();
+    }
 
-        // Calculate image dimensions (square grid, closest to sqrt)
-        int side = (int)Math.Ceiling(Math.Sqrt(colors.Count));
-        int totalPixels = side * side;
-        // Add more colors if needed, repeating the last one
-        while (colors.Count < totalPixels)
+    static string RLEncoding(string text)
+    {
+        if (string.IsNullOrEmpty(text))
         {
-            colors.Add(colors.Last());
+            return "";
         }
 
-        // Create bitmap
-        using (Bitmap bitmap = new Bitmap(side, side))
+        StringBuilder result = new StringBuilder();
+        int i = 0;
+        while (i < text.Length)
         {
-            for (int y = 0; y < side; y++)
+            char c = text[i];
+            int count = 1;
+            int j = i + 1;
+            while (j < text.Length && text[j] == c)
             {
-                for (int x = 0; x < side; x++)
-                {
-                    int index = y * side + x;
-                    bitmap.SetPixel(x, y, colors[index]);
-                }
+                count++;
+                j++;
             }
 
-            // Save as PNG
-            string outputFileName = "colors.png";
-            string outputPath = Path.Combine(Path.GetDirectoryName(inputFile), outputFileName);
-            try
+            if (count > 2)
             {
-                bitmap.Save(outputPath, ImageFormat.Png);
-                Console.WriteLine($"Image saved: {outputPath} ({side}x{side} pixels)");
+                result.Append(count);
             }
-            catch (Exception e)
+            result.Append(c);
+            i = j;
+        }
+
+        return result.ToString();
+    }
+
+    static void Search(StreamWriter sw, List<GeneticData> data, string seq)
+    {
+        sw.WriteLine("organism				protein");
+        bool found = false;
+        foreach (var gd in data)
+        {
+            if (gd.amino_acids.Contains(seq))
             {
-                Console.WriteLine($"Error saving image: {e.Message}");
+                sw.WriteLine(gd.organism + "		" + gd.protein);
+                found = true;
             }
+        }
+        if (!found)
+        {
+            sw.WriteLine("NOT FOUND");
         }
     }
 
+    static void Diff(StreamWriter sw, Dictionary<string, string> proteinToAcids, string p1, string p2)
+    {
+        proteinToAcids.TryGetValue(p1, out string? s1);
+        proteinToAcids.TryGetValue(p2, out string? s2);
+
+        sw.WriteLine("amino-acids difference:");
+        if (s1 == null || s2 == null)
+        {
+            string missing = "MISSING:";
+            if (s1 == null) missing += " " + p1;
+            if (s2 == null) missing += " " + p2;
+            sw.WriteLine(missing.Trim());
+        }
+        else
+        {
+            int len1 = s1.Length;
+            int len2 = s2.Length;
+            int minLen = Math.Min(len1, len2);
+            int matches = 0;
+            for (int i = 0; i < minLen; i++)
+            {
+                if (s1[i] == s2[i]) matches++;
+            }
+            int maxLen = Math.Max(len1, len2);
+            int difference = maxLen - matches;
+            sw.WriteLine(difference);
+        }
+    }
+
+    static void Mode(StreamWriter sw, Dictionary<string, string> proteinToAcids, string p)
+    {
+        sw.WriteLine("amino-acid occurs:");
+        if (proteinToAcids.TryGetValue(p, out string? s) && s != null)
+        {
+            if (string.IsNullOrEmpty(s))
+            {
+                sw.WriteLine(' ' + "          " + 0);
+                return;
+            }
+
+            var counts = s.GroupBy(c => c).ToDictionary(g => g.Key, g => g.Count());
+            int maxCount = counts.Values.Max();
+            char maxChar = counts.Where(kv => kv.Value == maxCount).Min(kv => kv.Key);
+
+            sw.WriteLine(maxChar + "          " + maxCount);
+        }
+        else
+        {
+            sw.WriteLine("MISSING: " + p);
+        }
+    }
+
+    static void Main(string[] args)
+    {
+        List<GeneticData> data = new List<GeneticData>();
+        using (StreamReader sr = new StreamReader("sequences.0.txt"))
+        {
+            string? line;
+            while ((line = sr.ReadLine()) != null)
+            {
+                string[] parts = line.Split('	');
+                if (parts.Length == 3)
+                {
+                    GeneticData gd;
+                    gd.protein = parts[0];
+                    gd.organism = parts[1];
+                    gd.amino_acids = RLDecoding(parts[2]);
+                    data.Add(gd);
+                }
+            }
+        }
+        
+        var proteinToAcids = data.ToDictionary(gd => gd.protein, gd => gd.amino_acids);
+
+        using (StreamWriter sw = new StreamWriter("genedata.0.txt"))
+        {
+            sw.WriteLine("Ales Tsybulski");
+            sw.WriteLine("Genetic Searching");
+            sw.WriteLine(new string('-', 74));
+
+            int opNum = 1;
+            using (StreamReader srCmd = new StreamReader("commands.0.txt"))
+            {
+                string? line;
+                while ((line = srCmd.ReadLine()) != null)
+                {
+                    string[] parts = line.Split('	');
+                    if (parts.Length < 1) continue;
+                    string cmd = parts[0];
+
+                    string opLine = string.Format("{0:000}   {1}", opNum, cmd);
+                    if (parts.Length > 1)
+                    {
+                        string param1 = (cmd == "search") ? RLDecoding(parts[1]) : parts[1];
+                        opLine += "   " + param1;
+                    }
+                    if (parts.Length > 2)
+                    {
+                        opLine += "   " + parts[2];
+                    }
+                    sw.WriteLine(opLine);
+                    opNum++;
+
+                    switch (cmd)
+                    {
+                        case "search":
+                            if (parts.Length < 2) continue;
+                            string seq = RLDecoding(parts[1]);
+                            Search(sw, data, seq);
+                            break;
+                        case "diff":
+                            if (parts.Length < 3) continue;
+                            Diff(sw, proteinToAcids, parts[1], parts[2]);
+                            break;
+                        case "mode":
+                            if (parts.Length < 2) continue;
+                            Mode(sw, proteinToAcids, parts[1]);
+                            break;
+                    }
+
+                    sw.WriteLine(new string('-', 74));
+                }
+            }
+        }
+    }
 }
