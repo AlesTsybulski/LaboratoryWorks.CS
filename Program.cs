@@ -1,223 +1,70 @@
-﻿
-using System.Text;
+﻿using System;
+using System.IO;
 
-
-struct GeneticData
+namespace TokenCreator
 {
-    public string protein;
-    public string organism;
-    public string amino_acids;
-}
-
-class Program
-{
-    static string RLDecoding(string amino_acids)
+    class Program
     {
-        if (string.IsNullOrEmpty(amino_acids)) return "";
-        StringBuilder sb = new StringBuilder();
-        int i = 0;
-        while (i < amino_acids.Length)
+        static void Main(string[] args)
         {
-            if (char.IsDigit(amino_acids[i]))
-            {
-                int num_start = i;
-                while (i < amino_acids.Length && char.IsDigit(amino_acids[i]))
+            Console.WriteLine("-----Text tokenization-----");
+
+            string changedTextPath = "C:\\VScode_projects\\Lab3\\text.txt";
+            string inputPath = "C:\\VScode_projects\\Lab3\\original_text.txt";
+            string ruPath = "C:\\VScode_projects\\Lab3\\stopwords_ru.txt";
+            string enPath = "C:\\VScode_projects\\Lab3\\stopwords_en.txt";
+            string xmlPath = "C:\\VScode_projects\\Lab3\\text.xml";
+
+            string inputText = string.Empty;
+
+            if (File.Exists(inputPath))
+                try
                 {
-                    i++;
+                    inputText = File.ReadAllText(inputPath);
+                    Console.WriteLine($"\nText was successfully loaded from file: {inputPath}");
                 }
-                int count = int.Parse(amino_acids.Substring(num_start, i - num_start));
-
-                if (i < amino_acids.Length && !char.IsDigit(amino_acids[i]))
+                catch (FileNotFoundException)
                 {
-                    char c = amino_acids[i];
-                    for (int j = 0; j < count; j++)
-                    {
-                        sb.Append(c);
-                    }
-                    i++;
+                    Console.WriteLine($"\nError: File not found at path {inputPath}");
+                    return;
                 }
-            }
-            else
-            {
-                sb.Append(amino_acids[i]);
-                i++;
-            }
-        }
-        return sb.ToString();
-    }
+                Text.LoadStopWords(ruPath, enPath);
 
-    static string RLEncoding(string text)
-    {
-        if (string.IsNullOrEmpty(text))
-        {
-            return "";
-        }
 
-        StringBuilder result = new StringBuilder();
-        int i = 0;
-        while (i < text.Length)
-        {
-            char c = text[i];
-            int count = 1;
-            int j = i + 1;
-            while (j < text.Length && text[j] == c)
-            {
-                count++;
-                j++;
-            }
+            Text text = Text.Parse(inputText);
+   
 
-            if (count > 2)
-            {
-                result.Append(count);
-            }
-            result.Append(c);
-            i = j;
-        }
+            Console.WriteLine("\n-----Sorted by amount-----");
+            foreach (var s in text.OrderByWordCount())
+                Console.WriteLine(s);
 
-        return result.ToString();
-    }
+            Console.WriteLine("\n-----3 symbol words in ? senteces was found-----");
+            foreach (var w in text.FindWordsInQuestions(3))
+                Console.WriteLine(w);
 
-    static void Search(StreamWriter sw, List<GeneticData> data, string seq)
-    {
-        sw.WriteLine("organism				protein");
-        bool found = false;
-        foreach (var gd in data)
-        {
-            if (gd.amino_acids.Contains(seq))
-            {
-                sw.WriteLine(gd.organism + "		" + gd.protein);
-                found = true;
-            }
-        }
-        if (!found)
-        {
-            sw.WriteLine("NOT FOUND");
-        }
-    }
+            text.RemoveWordsByLengthAndConsonant(5);
+            File.WriteAllText(changedTextPath, text.ToString());
+            Console.WriteLine("\n-----Words removed-----");
 
-    static void Diff(StreamWriter sw, Dictionary<string, string> proteinToAcids, string p1, string p2)
-    {
-        proteinToAcids.TryGetValue(p1, out string? s1);
-        proteinToAcids.TryGetValue(p2, out string? s2);
+            text.ReplaceWordsInSentence(0, 4, "!!!Replaced!!!");
+            File.WriteAllText(inputPath, text.ToString());
+            Console.WriteLine("\n-----Word replaced-----");
 
-        sw.WriteLine("amino-acids difference:");
-        if (s1 == null || s2 == null)
-        {
-            string missing = "MISSING:";
-            if (s1 == null) missing += " " + p1;
-            if (s2 == null) missing += " " + p2;
-            sw.WriteLine(missing.Trim());
-        }
-        else
-        {
-            int len1 = s1.Length;
-            int len2 = s2.Length;
-            int minLen = Math.Min(len1, len2);
-            int matches = 0;
-            for (int i = 0; i < minLen; i++)
-            {
-                if (s1[i] == s2[i]) matches++;
-            }
-            int maxLen = Math.Max(len1, len2);
-            int difference = maxLen - matches;
-            sw.WriteLine(difference);
-        }
-    }
 
-    static void Mode(StreamWriter sw, Dictionary<string, string> proteinToAcids, string p)
-    {
-        sw.WriteLine("amino-acid occurs:");
-        if (proteinToAcids.TryGetValue(p, out string? s) && s != null)
-        {
-            if (string.IsNullOrEmpty(s))
-            {
-                sw.WriteLine(' ' + "          " + 0);
-                return;
-            }
+            text.RemoveStopWords();
+            File.WriteAllText(changedTextPath, text.ToString());
+            Console.WriteLine("\n-----Stop words removed-----");
+            
 
-            var counts = s.GroupBy(c => c).ToDictionary(g => g.Key, g => g.Count());
-            int maxCount = counts.Values.Max();
-            char maxChar = counts.Where(kv => kv.Value == maxCount).Min(kv => kv.Key);
+            //XML
+            text.SaveAsXml(xmlPath);
+            Console.WriteLine($"\nXML saved to: {xmlPath}");
 
-            sw.WriteLine(maxChar + "          " + maxCount);
-        }
-        else
-        {
-            sw.WriteLine("MISSING: " + p);
-        }
-    }
-
-    static void Main(string[] args)
-    {
-        List<GeneticData> data = new List<GeneticData>();
-        using (StreamReader sr = new StreamReader("sequences.0.txt"))
-        {
-            string? line;
-            while ((line = sr.ReadLine()) != null)
-            {
-                string[] parts = line.Split('	');
-                if (parts.Length == 3)
-                {
-                    GeneticData gd;
-                    gd.protein = parts[0];
-                    gd.organism = parts[1];
-                    gd.amino_acids = RLDecoding(parts[2]);
-                    data.Add(gd);
-                }
-            }
-        }
+            
+            Text loaded = Text.LoadFromXml(xmlPath);
+            Console.WriteLine("\n-----From XML to TXT-----");
+            Console.WriteLine(loaded);
         
-        var proteinToAcids = data.ToDictionary(gd => gd.protein, gd => gd.amino_acids);
-
-        using (StreamWriter sw = new StreamWriter("genedata.0.txt"))
-        {
-            sw.WriteLine("Ales Tsybulski");
-            sw.WriteLine("Genetic Searching");
-            sw.WriteLine(new string('-', 74));
-
-            int opNum = 1;
-            using (StreamReader srCmd = new StreamReader("commands.0.txt"))
-            {
-                string? line;
-                while ((line = srCmd.ReadLine()) != null)
-                {
-                    string[] parts = line.Split('	');
-                    if (parts.Length < 1) continue;
-                    string cmd = parts[0];
-
-                    string opLine = string.Format("{0:000}   {1}", opNum, cmd);
-                    if (parts.Length > 1)
-                    {
-                        string param1 = (cmd == "search") ? RLDecoding(parts[1]) : parts[1];
-                        opLine += "   " + param1;
-                    }
-                    if (parts.Length > 2)
-                    {
-                        opLine += "   " + parts[2];
-                    }
-                    sw.WriteLine(opLine);
-                    opNum++;
-
-                    switch (cmd)
-                    {
-                        case "search":
-                            if (parts.Length < 2) continue;
-                            string seq = RLDecoding(parts[1]);
-                            Search(sw, data, seq);
-                            break;
-                        case "diff":
-                            if (parts.Length < 3) continue;
-                            Diff(sw, proteinToAcids, parts[1], parts[2]);
-                            break;
-                        case "mode":
-                            if (parts.Length < 2) continue;
-                            Mode(sw, proteinToAcids, parts[1]);
-                            break;
-                    }
-
-                    sw.WriteLine(new string('-', 74));
-                }
-            }
         }
     }
 }
